@@ -1,6 +1,7 @@
 # Sapi 🐮
 
-> [!NOTE] > `Sapi` is currently being developed.
+> [!NOTE]
+> `Sapi` is currently being developed.
 
 `sapi` is a command-line-interface (CLI) program to answer this specific question:
 
@@ -13,8 +14,8 @@ Also _yes_, it's **not as sophisticated as AI-based crawler**. So lower your exp
 
 And lastly _yes_. It's written in Python and _heavily_ rely on:
 
-1. [Python's selenium-binding] (https://selenium-python.readthedocs.io/)
-2. [Beautiful Soup's parsing engine] (https://pypi.org/project/beautifulsoup4/)
+1. [Python's selenium-binding](https://selenium-python.readthedocs.io/)
+2. [Beautiful Soup's parsing engine](https://pypi.org/project/beautifulsoup4/)
 
 `sapi` is chosen to be the name of the project just because this type of questions get asked too many times and it's exhausting to collect more and more unmanageable data.
 
@@ -22,7 +23,7 @@ And lastly _yes_. It's written in Python and _heavily_ rely on:
 
 ## Examples
 
-```
+```bash
 uv run .\main.py --scholar-id <scholar_id> --year 2020:2025 --verbose --save-path out.csv
 ```
 
