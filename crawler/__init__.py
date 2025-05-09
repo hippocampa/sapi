@@ -189,6 +189,87 @@ def exit_driver():
             driver = None
 
 
+def extract_from_txt(
+    scholar_ids: list[str], year: str, save_path: str, overwrite: bool
+):
+    """
+    Extract citation data for multiple scholar IDs from a text file.
+
+    Args:
+        scholar_ids: List of Google Scholar IDs
+        year: Year or range of years to extract citations for
+        save_path: Path where to save the output file
+        overwrite: Whether to overwrite the output file if it exists
+    """
+    import os
+    import pandas as pd
+
+    # Extract year range once (it's the same for all scholars)
+    year_range = year_extract(year)
+
+    # Create a master DataFrame to hold data from all scholar IDs
+    all_scholars_data = []
+    headers = ["scholar_id", "title", "publication_year"]
+    headers.extend([f"citations_{year}" for year in year_range])
+
+    # Initialize driver once to reuse across all scholar IDs
+    global driver
+    if driver is None:
+        driver = initialize_driver()
+
+    try:
+        for idx, scholar_id in enumerate(scholar_ids):
+            logger.info(
+                f"Processing scholar ID {idx + 1}/{len(scholar_ids)}: {scholar_id}"
+            )
+
+            try:
+                # Get the scholar's page
+                page_src = get_page(scholar_id)
+
+                if page_src:
+                    # Find articles for the specified years
+                    articles_to_find = soupr.get_articles(page_src, year_range)
+                    logger.info(
+                        f"Found {len(articles_to_find)} articles for scholar {scholar_id} in year(s) {year_range}"
+                    )
+
+                    # Extract citation data for all articles from this scholar
+                    scholar_citation_data = extract_citations(
+                        scholar_id, articles_to_find, year_range
+                    )
+
+                    # Add this scholar's data to the collection
+                    all_scholars_data.extend(scholar_citation_data)
+                else:
+                    logger.warning(
+                        f"Could not retrieve page for scholar ID: {scholar_id}"
+                    )
+
+            except Exception as e:
+                logger.error(f"Error processing scholar ID {scholar_id}: {str(e)}")
+                continue
+
+            # Add a small delay between scholar profiles
+            time.sleep(2)
+
+        # Create a DataFrame with all collected data
+        if all_scholars_data:
+            df = pd.DataFrame(all_scholars_data, columns=headers)
+            logger.info(
+                f"Combined DataFrame created with {len(df)} rows from {len(scholar_ids)} scholars"
+            )
+
+            # Save the combined DataFrame to Excel
+            save_to_excel(df, save_path, overwrite)
+        else:
+            logger.warning("No data collected from any scholar ID")
+
+    finally:
+        # Ensure driver is properly closed
+        exit_driver()
+
+
 def extract(
     scholar_id: str,
     year: str,

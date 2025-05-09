@@ -12,3 +12,6 @@ wheels/
 chromedriver-win64/
 Makefile
 output/
+*.txt
+*.csv
+*.xlsx
