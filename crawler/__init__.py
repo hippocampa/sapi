@@ -9,6 +9,8 @@ from selenium.common.exceptions import (
     ElementClickInterceptedException,
     StaleElementReferenceException,
 )
+
+from crawler import soupr
 from .logger import logger
 import time
 from bs4 import BeautifulSoup
@@ -16,7 +18,7 @@ from bs4 import BeautifulSoup
 __all__ = ["get_page", "extract"]
 
 chrome_options = webdriver.ChromeOptions()
-# chrome_options.add_argument("--headless")
+chrome_options.add_argument("--headless")
 chrome_options.add_argument("--no-sandbox")
 chrome_options.add_argument("--disable-dev-shm-usage")
 chrome_options.add_argument("--disable-gpu")
@@ -41,11 +43,239 @@ def year_extract(year: str) -> str:
     return year_range
 
 
-def extract(scholar_id: str, year: str, verbose: bool, save_path: str, overwrite: bool):
-    year_ex = year_extract(year)
-    page_src = get_page(scholar_id)
+def extract_citation_counts(article_soup):
+    """
+    Extract citation counts per year from an article page.
 
-    return "hi"
+    Args:
+        article_soup: BeautifulSoup object of the article page
+
+    Returns:
+        dict: Dictionary mapping years to citation counts
+    """
+    citation_data = {}
+
+    # Find the citation graph
+    citation_bars = article_soup.select("#gsc_oci_graph_bars .gsc_oci_g_a")
+
+    # If no citation graph is found, return empty dict
+    if not citation_bars:
+        return citation_data
+
+    # Extract year and citation count from each bar
+    for bar in citation_bars:
+        year = None
+        count = None
+
+        # Extract year from the href attribute (as_ylo and as_yhi parameters)
+        href = bar.get("href", "")
+        year_match = href.find("as_ylo=")
+        if year_match != -1:
+            year = href[year_match + 7 : year_match + 11]
+
+        # Extract count from the span element
+        count_elem = bar.select_one(".gsc_oci_g_al")
+        if count_elem:
+            count = count_elem.text.strip()
+
+        if year and count:
+            citation_data[year] = int(count)
+
+    return citation_data
+
+
+def get_article_page(driver, article_url):
+    """
+    Navigate to an article page and return its soup.
+
+    Args:
+        driver: Selenium webdriver instance
+        article_url: URL of the article
+
+    Returns:
+        BeautifulSoup object of the article page
+    """
+    try:
+        driver.get(article_url)
+
+        # Wait for the citation information to load
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CLASS_NAME, "gsc_oci_value"))
+        )
+
+        # Get the page source and parse with BeautifulSoup
+        page_source = driver.page_source
+        return BeautifulSoup(page_source, "html.parser")
+    except Exception as e:
+        logger.error(f"Error loading article page: {str(e)}")
+        return None
+
+
+def extract_citations(scholar_id, articles, target_years):
+    """
+    Extract citation data for a list of articles.
+
+    Args:
+        scholar_id: Google Scholar ID of the author
+        articles: List of article dictionaries with title, url, and year
+        target_years: List of years for which to extract citation data
+
+    Returns:
+        list: List of lists with citation data in format
+             [scholar_id, title, pub_year, citation_year1, citation_year2, ...]
+    """
+    global driver
+    citation_data = []
+
+    try:
+        if driver is None:
+            driver = initialize_driver()
+
+        for article in articles:
+            title = article["title"]
+            url = article["url"]
+            pub_year = article["year"]
+
+            logger.info(f"Extracting citation data for article: {title}")
+
+            row_data = [scholar_id, title, pub_year]
+
+            # Get the article page
+            article_soup = get_article_page(driver, url)
+            if article_soup is None:
+                # Add -1 for each target year if article page couldn't be loaded
+                row_data.extend([-1] * len(target_years))
+                citation_data.append(row_data)
+                continue
+
+            # Extract citation counts
+            citation_counts = extract_citation_counts(article_soup)
+
+            # Add citation counts for each target year
+            for year in target_years:
+                row_data.append(citation_counts.get(year, -1))
+
+            citation_data.append(row_data)
+
+            # Add a small delay to avoid overwhelming the server
+            time.sleep(1)
+
+    except Exception as e:
+        logger.error(f"Error extracting citation data: {str(e)}")
+    finally:
+        # Don't close driver here as it's managed by the calling function
+        pass
+
+    return citation_data
+
+
+def ensure_xlsx_extension(save_path: str) -> str:
+    """Ensure the save path has a .xlsx extension."""
+    if not save_path.lower().endswith(".xlsx"):
+        save_path += ".xlsx"
+    return save_path
+
+
+def exit_driver():
+    """Properly exit and clean up the driver."""
+    global driver
+    if driver:
+        try:
+            driver.quit()
+            logger.info("WebDriver successfully closed")
+        except Exception as e:
+            logger.error(f"Error closing WebDriver: {str(e)}")
+        finally:
+            driver = None
+
+
+def extract(
+    scholar_id: str,
+    year: str,
+    save_path: str,
+    overwrite: bool,
+):
+    year_range = year_extract(year)
+    page_src = get_page(scholar_id)
+    articles_to_find = soupr.get_articles(page_src, year_range)
+    logger.info(f"Found {len(articles_to_find)} articles for the year(s) {year_range}.")
+
+    # Extract citation data for all articles
+    citation_data = extract_citations(scholar_id, articles_to_find, year_range)
+
+    # Write citation data to CSV
+    if citation_data:
+        import pandas as pd
+
+        # Create column headers
+        headers = ["scholar_id", "title", "publication_year"]
+        headers.extend([f"citations_{year}" for year in year_range])
+
+        df = pd.DataFrame(citation_data, columns=headers)
+        logger.info(
+            f"DataFrame created with {len(df)} rows and {len(df.columns)} columns."
+        )
+
+        # Call function to save DataFrame to Excel
+        save_to_excel(df, save_path, overwrite)
+
+    # Ensure driver is properly closed
+    exit_driver()
+
+
+def save_to_excel(df, save_path, overwrite=False):
+    """
+    Save a DataFrame to an Excel file.
+
+    Args:
+        df: Pandas DataFrame to save
+        save_path: Path where to save the file
+        overwrite: Whether to overwrite if file exists
+
+    Returns:
+        str: Path where the file was saved
+    """
+    import os
+
+    # Ensure the save path has a .xlsx extension
+    save_path = ensure_xlsx_extension(save_path)
+
+    # If save_path is just a filename without a directory, save in output folder
+    if os.path.dirname(save_path) == "":
+        save_path = os.path.join("output", save_path)
+
+    # Check if file exists and handle overwriting
+    if os.path.exists(save_path) and not overwrite:
+        # Generate a new filename with timestamp
+        from datetime import datetime
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        # Split the path to get directory and filename
+        dir_path = os.path.dirname(save_path)
+        file_name = os.path.basename(save_path)
+
+        # Split the filename to get name and extension
+        name_part, ext_part = os.path.splitext(file_name)
+
+        # Create new filename with timestamp
+        new_file_name = f"{name_part}_{timestamp}{ext_part}"
+
+        # Create new save path
+        save_path = os.path.join(dir_path, new_file_name)
+
+        logger.info(
+            f"File exists and overwrite=False. Generating new file name: {save_path}"
+        )
+
+    # Create directory if it doesn't exist
+    os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
+
+    # Save to Excel file
+    df.to_excel(save_path, index=False)
+    logger.info(f"Data saved to {save_path}")
+
+    return save_path
 
 
 def initialize_driver():
@@ -161,9 +391,10 @@ def get_page_source(driver):
     page_source = driver.page_source
     soup = BeautifulSoup(page_source, "html.parser")
 
-    url = driver.current_url
-    scholar_id = url.split("user=")[1].split("&")[0] if "user=" in url else "unknown"
-    save_html_to_file(soup, scholar_id)
+    # url = driver.current_url
+    # scholar_id = url.split("user=")[1].split("&")[0] if "user=" in url else "unknown"
+    # save_html_to_file(soup, scholar_id)
+    return soup
 
 
 def cleanup_driver(driver_instance):

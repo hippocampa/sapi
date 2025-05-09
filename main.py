@@ -2,6 +2,8 @@ import typer
 from datetime import datetime
 
 import crawler
+from crawler import soupr
+import crawler.soupr
 
 
 def main(
@@ -16,12 +18,6 @@ def main(
         "--year",
         "-y",
         help="Year range in YYYY format (single year) or YYYY:YYYY (range).",
-    ),
-    verbose: bool = typer.Option(
-        False,
-        "--verbose",
-        "-v",
-        help="Enable verbose output with additional details.",
     ),
     save_path: str = typer.Option(
         f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
@@ -39,18 +35,15 @@ def main(
     Scrape publication data from a Google Scholar profile for the specified year(s). The output will be saved to a text file containing publication details.\n\n
     Sapi V.0.1.0 -- https://wwww.github.com/hippocampa\n
     """
-    crawler.extract(scholar_id, year, verbose, save_path, overwrite)
-
-    # if verbose:
-    #     typer.echo("Verbose mode enabled. Starting scraping process...")
-    #     typer.echo(f"Target Scholar ID: {scholar_id}")
-    #     typer.echo(f"Year range: {year}")
-    #     typer.echo(f"Output will be saved to: {save_path}")
-    #     typer.echo(f"Overwrite mode: {'enabled' if overwrite else 'disabled'}")
-
-    # Your scraping logic would go here
-    # typer.echo(f"Scraping data for Scholar ID: {scholar_id}, Year(s): {year}")
-    # typer.echo(f"Results will be saved to: {save_path}")
+    crawler.extract(scholar_id, year, save_path, overwrite)
+    # articles = crawler.soupr.get_articles(
+    #     r"D:\0_Lab\akreditasi_TI\sapi\output\scholar_igzQmigAAAAJ_20250508_122223.html",
+    #     ["2020"],
+    # )
+    # for article in articles:
+    #     print(f"Title: {article['title']}")
+    #     print(f"URL: {article['url']}")
+    #     print("-" * 40)
 
 
 if __name__ == "__main__":
