@@ -65,7 +65,7 @@ def main(
                 raise typer.Exit(code=1)
 
             crawler.extract_from_txt(
-                from_txt,
+                scholar_ids,
                 year,
                 save_path,
                 overwrite,
